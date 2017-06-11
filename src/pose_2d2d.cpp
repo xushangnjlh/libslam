@@ -1,5 +1,6 @@
 #include "common.h"
 // #include "opencv2/xfeatures2d/nonfree.hpp"
+#include <chrono>
 
 void feature_extraction_and_match(const Mat& img1, 
                                   const Mat& img2, 
@@ -14,11 +15,17 @@ void pose_estimation_by_epipolar_constraint(vector<cv::KeyPoint>& keyPoints1,
                                             Mat& R, Mat& t
                                            );
 
+void pose_estimation_by_PnP(const vector<cv::Point3f>& points_3d, 
+                            const vector<cv::Point2f>& points_2d,
+                            const Mat& K,
+                            Mat& R, Mat& t 
+                           );
+
 void triangulation(const vector<cv::KeyPoint>& keyPoints1, 
                    const vector<cv::KeyPoint>& keyPoints2,
                    const vector<cv::DMatch>& matches,
                    const Mat& R, const Mat& t,
-                   vector<cv::Point3d>& points
+                   vector<cv::Point3f>& points
                   );
 
 inline cv::Point2f pixel2cam(const cv::Point2d& pt, const Mat& K)
@@ -53,29 +60,49 @@ int main(int argc, char** argv)
          << "t = " << endl
          << t << endl;
          
-    vector<cv::Point3d> points;
+    vector<cv::Point3f> points;
     triangulation(keyPoints1, keyPoints2, good_matches, R, t, points);
     
     Mat K = ( cv::Mat_<double> ( 3,3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
-    for ( int i=0; i<good_matches.size(); i++ )
+//     for ( int i=0; i<good_matches.size(); i++ )
+//     {
+//         cv::Point2d pt1_cam = pixel2cam( keyPoints1[ good_matches[i].queryIdx ].pt, K );
+//         cv::Point2d pt1_cam_3d(
+//             points[i].x/points[i].z, 
+//             points[i].y/points[i].z 
+//         );
+//         
+//         cout<<"point in the first camera frame: "<<pt1_cam<<endl;
+//         cout<<"point projected from 3D "<<pt1_cam_3d<<", d="<<points[i].z<<endl;
+//         
+//         // 第二个图
+//         cv::Point2f pt2_cam = pixel2cam( keyPoints2[ good_matches[i].trainIdx ].pt, K );
+//         Mat pt2_trans = R*( cv::Mat_<double>(3,1) << points[i].x, points[i].y, points[i].z ) + t;
+//         pt2_trans /= pt2_trans.at<double>(2,0);
+//         cout<<"point in the second camera frame: "<<pt2_cam<<endl;
+//         cout<<"point reprojected from second frame: "<<pt2_trans.t()<<endl;
+//         cout<<endl;
+//     }
+    
+    vector<cv::Point2f> points_2d;
+    for(int i=0; i<good_matches.size(); ++i)
     {
-        cv::Point2d pt1_cam = pixel2cam( keyPoints1[ good_matches[i].queryIdx ].pt, K );
-        cv::Point2d pt1_cam_3d(
-            points[i].x/points[i].z, 
-            points[i].y/points[i].z 
-        );
-        
-        cout<<"point in the first camera frame: "<<pt1_cam<<endl;
-        cout<<"point projected from 3D "<<pt1_cam_3d<<", d="<<points[i].z<<endl;
-        
-        // 第二个图
-        cv::Point2f pt2_cam = pixel2cam( keyPoints2[ good_matches[i].trainIdx ].pt, K );
-        Mat pt2_trans = R*( cv::Mat_<double>(3,1) << points[i].x, points[i].y, points[i].z ) + t;
-        pt2_trans /= pt2_trans.at<double>(2,0);
-        cout<<"point in the second camera frame: "<<pt2_cam<<endl;
-        cout<<"point reprojected from second frame: "<<pt2_trans.t()<<endl;
-        cout<<endl;
+        points_2d.push_back(keyPoints2[good_matches[i].trainIdx].pt);
     }
+    
+    chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
+    Mat R_pnp, r_pnp, t_pnp;
+    // r_pnp is the axis-angle vector; while R_pnp is the rotation matrix
+    pose_estimation_by_PnP(points, points_2d, K, r_pnp, t_pnp);
+    chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
+    chrono::duration<double> time_duration = chrono::duration_cast<chrono::duration<double> >(t2-t1);
+    cout << "Time cost = " << time_duration.count()*1000 << " mseconds." << endl;
+    cv::Rodrigues(r_pnp, R_pnp);
+    cout << "R_pnp = " << endl
+         << R_pnp << endl;
+    cout << "t_pnp = " << endl
+         << t_pnp << endl;
+    
          
 //     Mat t_x = ( cv::Mat_<double> ( 3,3 ) <<
 //                 0,                      -t.at<double> ( 2,0 ),     t.at<double> ( 1,0 ),
@@ -190,7 +217,7 @@ void triangulation(const vector< cv::KeyPoint >& keyPoints1,
                    const vector< cv::KeyPoint >& keyPoints2, 
                    const vector< cv::DMatch >& good_matches, 
                    const Mat& R, const Mat& t, 
-                   vector<cv::Point3d>& points)
+                   vector<cv::Point3f>& points)
 {
     Mat T1 = (cv::Mat_<double>(3,4) << 
         1,0,0,0,
@@ -226,7 +253,18 @@ void triangulation(const vector< cv::KeyPoint >& keyPoints1,
             x.at<float>(2,0)
         );
         points.push_back(p);
-        cout << points[i] << endl;
+//         cout << points[i] << endl;
     }
-    cout << "debug" << endl;
+//     cout << "debug" << endl;
 }
+
+void pose_estimation_by_PnP(const vector<cv::Point3f>& points_3d, 
+                            const vector<cv::Point2f>& points_2d, 
+                            const Mat& K, 
+                            Mat& R, Mat& t
+                           )
+{
+    // EPnP is the fast compared with UPnP and ITERATIVE method
+    cv::solvePnP(points_3d, points_2d, K, Mat(), R, t, false, cv::SOLVEPNP_EPNP);
+}
+

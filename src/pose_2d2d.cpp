@@ -1,6 +1,6 @@
 #include "common.h"
 // #include "opencv2/xfeatures2d/nonfree.hpp"
-#include <chrono>
+#include "tic_toc.h"
 
 void feature_extraction_and_match(const Mat& img1, 
                                   const Mat& img2, 
@@ -90,13 +90,11 @@ int main(int argc, char** argv)
         points_2d.push_back(keyPoints2[good_matches[i].trainIdx].pt);
     }
     
-    chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
+    TicToc tic;
     Mat R_pnp, r_pnp, t_pnp;
     // r_pnp is the axis-angle vector; while R_pnp is the rotation matrix
     pose_estimation_by_PnP(points, points_2d, K, r_pnp, t_pnp);
-    chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
-    chrono::duration<double> time_duration = chrono::duration_cast<chrono::duration<double> >(t2-t1);
-    cout << "Time cost = " << time_duration.count()*1000 << " mseconds." << endl;
+    cout << "Time cost = " << tic.toc() << " mseconds." << endl;
     cv::Rodrigues(r_pnp, R_pnp);
     cout << "R_pnp = " << endl
          << R_pnp << endl;
